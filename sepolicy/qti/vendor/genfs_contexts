@@ -21,8 +21,10 @@ genfscon sysfs /devices/platform/soc/soc:oplus,mms_wired/oplus_mms        u:obje
 genfscon sysfs /devices/virtual/oplus_chg                                 u:object_r:vendor_sysfs_usb_supply:s0
 
 # Camera
-genfscon proc /boost_pool/camera_pid     u:object_r:vendor_proc_camera:s0
-genfscon proc /boost_pool/camera_pages   u:object_r:vendor_proc_camera:s0
+genfscon proc /boost_pool/camera_pages           u:object_r:vendor_proc_camera:s0
+genfscon proc /boost_pool/camera_pid             u:object_r:vendor_proc_camera:s0
+genfscon proc /oplus_cl/cl_aware_camera          u:object_r:vendor_proc_camera:s0
+genfscon proc /oplus_cl/cl_aware_camera_usage    u:object_r:vendor_proc_camera:s0
 genfscon sysfs /devices/platform/soc/c42d000.qcom,spmi/spmi-0/0-01/c42d000.qcom,spmi:qcom,pm8550@1:qcom,flash_led@ee00/leds/led:torch_0/brightness      u:object_r:sysfs_torch:s0
 genfscon sysfs /devices/platform/soc/c42d000.qcom,spmi/spmi-0/0-01/c42d000.qcom,spmi:qcom,pm8550@1:qcom,flash_led@ee00/leds/led:torch_0/max_brightness      u:object_r:sysfs_torch:s0
 genfscon sysfs /devices/platform/soc/c42d000.qcom,spmi/spmi-0/0-01/c42d000.qcom,spmi:qcom,pm8550@1:qcom,flash_led@ee00/leds/led:torch_1/brightness      u:object_r:sysfs_torch:s0
