@@ -20,9 +20,9 @@
 
 #include "aac_vibra_function.h"
 
-#define RICHTAP_LIGHT_STRENGTH 69
-#define RICHTAP_MEDIUM_STRENGTH 89
-#define RICHTAP_STRONG_STRENGTH 99
+#define RICHTAP_LIGHT_STRENGTH 49
+#define RICHTAP_MEDIUM_STRENGTH 69
+#define RICHTAP_STRONG_STRENGTH 89
 
 #ifdef USES_OPLUS_AWINIC
 #define RICHTAP_OPLUS_ACTIVATE_NODE "/sys/class/leds/vibrator/oplus_activate"
