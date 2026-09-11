@@ -32,6 +32,7 @@ Vibrator::Vibrator() {
     }
 
     aac_vibra_looper_start();
+    aac_vibra_dynamic_scale(255);
 
     ALOGI("AAC init success: %u\n", deviceType);
 }
@@ -49,21 +50,25 @@ ndk::ScopedAStatus Vibrator::off() {
         ALOGE("AAC off failed: %d\n", ret);
         return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_SERVICE_SPECIFIC));
     }
+    mAmplitude = 255;
 
     return ndk::ScopedAStatus::ok();
 }
 
 ndk::ScopedAStatus Vibrator::on(int32_t timeoutMs,
                                 const std::shared_ptr<IVibratorCallback>& callback) {
-    int32_t ret = aac_vibra_looper_on(timeoutMs);
-    if (ret < 0) {
+    aac_vibra_dynamic_scale(mAmplitude);
+    aac_vibra_setAmplitude(mAmplitude);
+
+    int32_t ret = aac_vibra_on(timeoutMs);
+    if (ret != 0) {
         ALOGE("AAC on failed: %d\n", ret);
         return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_SERVICE_SPECIFIC));
     }
 
     if (callback != nullptr) {
         std::thread([=] {
-            usleep(ret * 1000);
+            usleep(timeoutMs * 1000);
             callback->onComplete();
         }).detach();
     }
@@ -76,7 +81,7 @@ ndk::ScopedAStatus Vibrator::perform(Effect effect, EffectStrength es,
                                      int32_t* _aidl_return) {
     int32_t strength;
 
-    if (effect < Effect::CLICK || effect > Effect::HEAVY_CLICK)
+    if (effect < Effect::CLICK || (effect > Effect::HEAVY_CLICK && effect != Effect::TEXTURE_TICK))
         return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_UNSUPPORTED_OPERATION));
 
     switch (es) {
@@ -93,7 +98,14 @@ ndk::ScopedAStatus Vibrator::perform(Effect effect, EffectStrength es,
             return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_UNSUPPORTED_OPERATION));
     }
 
-    int32_t ret = aac_vibra_looper_prebaked_effect(static_cast<uint32_t>(effect), strength);
+    uint32_t effectId = static_cast<uint32_t>(effect);
+    if (effect == Effect::TEXTURE_TICK) {
+        effectId = static_cast<uint32_t>(Effect::TICK);
+    }
+
+    aac_vibra_dynamic_scale(255);
+
+    int32_t ret = aac_vibra_looper_prebaked_effect(effectId, strength);
     if (ret < 0) {
         ALOGE("AAC perform failed: %d\n", ret);
         return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_SERVICE_SPECIFIC));
@@ -113,15 +125,24 @@ ndk::ScopedAStatus Vibrator::perform(Effect effect, EffectStrength es,
 
 ndk::ScopedAStatus Vibrator::getSupportedEffects(std::vector<Effect>* _aidl_return) {
     *_aidl_return = {Effect::CLICK, Effect::DOUBLE_CLICK, Effect::TICK,
-                     Effect::THUD,  Effect::POP,          Effect::HEAVY_CLICK};
+                     Effect::THUD,  Effect::POP,          Effect::HEAVY_CLICK,
+                     Effect::TEXTURE_TICK};
 
     return ndk::ScopedAStatus::ok();
 }
 
 ndk::ScopedAStatus Vibrator::setAmplitude(float amplitude) {
-    uint8_t tmp = (uint8_t)(amplitude * 0xff);
+    if (amplitude <= 0.0f || amplitude > 1.0f)
+        return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_ILLEGAL_ARGUMENT));
 
-    int32_t ret = aac_vibra_setAmplitude(tmp);
+    mAmplitude = (uint8_t)(amplitude * 0xff);
+
+    int32_t ret = aac_vibra_dynamic_scale(mAmplitude);
+    if (ret) {
+        ALOGE("AAC dynamic scale failed: %d\n", ret);
+    }
+
+    ret = aac_vibra_setAmplitude(mAmplitude);
     if (ret) {
         ALOGE("AAC set amplitude failed: %d\n", ret);
         return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_SERVICE_SPECIFIC));
