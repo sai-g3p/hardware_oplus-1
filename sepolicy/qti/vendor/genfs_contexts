@@ -38,6 +38,9 @@ genfscon sysfs /kernel/oplus_display    u:object_r:vendor_sysfs_graphics:s0
 # Display - DC dim
 genfscon sysfs /kernel/oplus_dc_dim/dc_dim_enable u:object_r:sysfs_dcd:s0
 
+# Extcon
+genfscon sysfs /devices/platform/soc/soc:spf_core_platform/soc:spf_core_platform:lpass-cdc/wcd937x-codec/extcon u:object_r:sysfs_extcon:s0
+
 # Engineering
 genfscon proc /oplus_rf    u:object_r:vendor_proc_engineer:s0
 
