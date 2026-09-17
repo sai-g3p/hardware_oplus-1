@@ -35,7 +35,6 @@ constexpr int32_t kMinLevel = 800;
 constexpr int32_t kMaxLevel = 2400;
 constexpr int32_t kLevelStep = 100;
 constexpr uint32_t kDoubleClickGapMs = 100;
-constexpr int32_t kCompositionDelayMaxMs = 1000;
 
 constexpr float kLightScale = 0.60f;
 constexpr float kMediumScale = 0.80f;
@@ -106,40 +105,20 @@ float getStrengthScale(EffectStrength strength) {
 EffectProfile getEffectProfile(Effect effect) {
     switch (effect) {
         case Effect::TEXTURE_TICK:
-            return {10, 110};
+            return {12, 140};
         case Effect::TICK:
-            return {15, 160};
+            return {18, 200};
         case Effect::CLICK:
         case Effect::DOUBLE_CLICK:
-            return {20, 190};
+            return {20, 220};
         case Effect::POP:
-            return {25, 210};
+            return {25, 235};
         case Effect::THUD:
-            return {30, 230};
+            return {30, 245};
         case Effect::HEAVY_CLICK:
             return {35, 255};
         default:
-            return {20, 190};
-    }
-}
-
-EffectProfile getPrimitiveProfile(CompositePrimitive primitive) {
-    switch (primitive) {
-        case CompositePrimitive::CLICK:
-        case CompositePrimitive::QUICK_RISE:
-            return {20, 190};
-        case CompositePrimitive::THUD:
-        case CompositePrimitive::SLOW_RISE:
-        case CompositePrimitive::SPIN:
-            return {30, 230};
-        case CompositePrimitive::LIGHT_TICK:
-            return {12, 140};
-        case CompositePrimitive::LOW_TICK:
-            return {12, 160};
-        case CompositePrimitive::QUICK_FALL:
-            return {12, 140};
-        default:
-            return {0, 0};
+            return {20, 220};
     }
 }
 
@@ -228,84 +207,10 @@ int32_t Vibrator::playEffect(uint32_t durationMs, uint8_t amplitude) {
     return static_cast<int32_t>(durationMs);
 }
 
-void Vibrator::playComposition(std::vector<CompositeEffect> composite,
-                               const std::shared_ptr<IVibratorCallback>& callback) {
-    struct Step {
-        int32_t delayMs;
-        uint32_t durationMs;
-        uint8_t amplitude;
-    };
-
-    std::vector<Step> steps;
-    int32_t pendingDelayMs = 0;
-
-    for (const auto& effect : composite) {
-        pendingDelayMs += effect.delayMs;
-
-        if (effect.primitive == CompositePrimitive::NOOP || effect.scale <= 0.0f) {
-            continue;
-        }
-
-        EffectProfile profile = getPrimitiveProfile(effect.primitive);
-        if (profile.durationMs == 0) {
-            continue;
-        }
-
-        uint8_t amp = scaleAmplitude(profile.amplitude, effect.scale);
-
-        if (!steps.empty() && pendingDelayMs == 0 &&
-            std::abs(static_cast<int>(steps.back().amplitude) - static_cast<int>(amp)) <= 5) {
-            steps.back().durationMs += profile.durationMs;
-        } else {
-            steps.push_back({pendingDelayMs, profile.durationMs, amp});
-            pendingDelayMs = 0;
-        }
-    }
-
-    if (steps.empty()) {
-        if (callback != nullptr) {
-            callback->onComplete();
-        }
-        return;
-    }
-
-    uint32_t generation = mGeneration.load();
-
-    std::thread([this, steps = std::move(steps), callback, generation] {
-        for (const auto& step : steps) {
-            if (mGeneration.load() != generation) {
-                return;
-            }
-
-            if (step.delayMs > 0) {
-                usleep(step.delayMs * 1000);
-                if (mGeneration.load() != generation) {
-                    return;
-                }
-            }
-
-            {
-                std::lock_guard<std::mutex> lock(mMutex);
-                if (mGeneration.load() != generation) {
-                    return;
-                }
-                playEffect(step.durationMs, step.amplitude);
-            }
-
-            usleep(step.durationMs * 1000);
-        }
-
-        if (mGeneration.load() == generation && callback != nullptr) {
-            callback->onComplete();
-        }
-    }).detach();
-}
-
 ndk::ScopedAStatus Vibrator::getCapabilities(int32_t* _aidl_return) {
     *_aidl_return = static_cast<int32_t>(IVibrator::CAP_ON_CALLBACK) |
                     static_cast<int32_t>(IVibrator::CAP_PERFORM_CALLBACK) |
-                    static_cast<int32_t>(IVibrator::CAP_AMPLITUDE_CONTROL) |
-                    static_cast<int32_t>(IVibrator::CAP_COMPOSE_EFFECTS);
+                    static_cast<int32_t>(IVibrator::CAP_AMPLITUDE_CONTROL);
 
     return ndk::ScopedAStatus::ok();
 }
@@ -384,18 +289,31 @@ ndk::ScopedAStatus Vibrator::perform(Effect effect, EffectStrength es,
     mGeneration.fetch_add(1);
 
     if (effect == Effect::DOUBLE_CLICK) {
-        std::vector<CompositeEffect> composite(2);
-        composite[0].primitive = CompositePrimitive::CLICK;
-        composite[0].scale = strengthScale;
-        composite[0].delayMs = 0;
-        composite[1].primitive = CompositePrimitive::CLICK;
-        composite[1].scale = strengthScale;
-        composite[1].delayMs = kDoubleClickGapMs;
-
-        playComposition(composite, callback);
-
         EffectProfile profile = getEffectProfile(Effect::CLICK);
-        *_aidl_return = static_cast<int32_t>(profile.durationMs * 2 + kDoubleClickGapMs);
+        uint8_t amplitude = scaleAmplitude(profile.amplitude, strengthScale);
+        int32_t totalDuration = static_cast<int32_t>(profile.durationMs * 2 + kDoubleClickGapMs);
+
+        uint32_t generation = mGeneration.load();
+        std::thread([this, profile, amplitude, callback, generation] {
+            {
+                std::lock_guard<std::mutex> lock(mMutex);
+                if (mGeneration.load() != generation) return;
+                playEffect(profile.durationMs, amplitude);
+            }
+            usleep((profile.durationMs + kDoubleClickGapMs) * 1000);
+            {
+                std::lock_guard<std::mutex> lock(mMutex);
+                if (mGeneration.load() != generation) return;
+                playEffect(profile.durationMs, amplitude);
+            }
+            usleep(profile.durationMs * 1000);
+
+            if (mGeneration.load() == generation && callback != nullptr) {
+                callback->onComplete();
+            }
+        }).detach();
+
+        *_aidl_return = totalDuration;
         return ndk::ScopedAStatus::ok();
     }
 
@@ -460,74 +378,30 @@ ndk::ScopedAStatus Vibrator::setExternalControl(bool /* enabled */) {
     return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_UNSUPPORTED_OPERATION));
 }
 
-ndk::ScopedAStatus Vibrator::getCompositionDelayMax(int32_t* maxDelayMs) {
-    if (maxDelayMs == nullptr) {
-        return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_ILLEGAL_ARGUMENT));
-    }
-    *maxDelayMs = kCompositionDelayMaxMs;
-    return ndk::ScopedAStatus::ok();
+ndk::ScopedAStatus Vibrator::getCompositionDelayMax(int32_t* /* maxDelayMs */) {
+    return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_UNSUPPORTED_OPERATION));
 }
 
-ndk::ScopedAStatus Vibrator::getCompositionSizeMax(int32_t* maxSize) {
-    if (maxSize == nullptr) {
-        return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_ILLEGAL_ARGUMENT));
-    }
-    *maxSize = 256;
-    return ndk::ScopedAStatus::ok();
+ndk::ScopedAStatus Vibrator::getCompositionSizeMax(int32_t* /* maxSize */) {
+    return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_UNSUPPORTED_OPERATION));
 }
 
 ndk::ScopedAStatus Vibrator::getSupportedPrimitives(
         std::vector<CompositePrimitive>* supported) {
-    *supported = {
-        CompositePrimitive::NOOP,
-        CompositePrimitive::CLICK,
-        CompositePrimitive::THUD,
-        CompositePrimitive::SPIN,
-        CompositePrimitive::QUICK_RISE,
-        CompositePrimitive::SLOW_RISE,
-        CompositePrimitive::QUICK_FALL,
-        CompositePrimitive::LIGHT_TICK,
-        CompositePrimitive::LOW_TICK,
-    };
+    if (supported != nullptr) {
+        supported->clear();
+    }
     return ndk::ScopedAStatus::ok();
 }
 
-ndk::ScopedAStatus Vibrator::getPrimitiveDuration(CompositePrimitive primitive,
-                                                  int32_t* durationMs) {
-    if (durationMs == nullptr) {
-        return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_ILLEGAL_ARGUMENT));
-    }
-
-    EffectProfile profile = getPrimitiveProfile(primitive);
-    if (primitive != CompositePrimitive::NOOP && profile.durationMs == 0) {
-        return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_UNSUPPORTED_OPERATION));
-    }
-
-    *durationMs = static_cast<int32_t>(profile.durationMs);
-    return ndk::ScopedAStatus::ok();
+ndk::ScopedAStatus Vibrator::getPrimitiveDuration(CompositePrimitive /* primitive */,
+                                                  int32_t* /* durationMs */) {
+    return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_UNSUPPORTED_OPERATION));
 }
 
-ndk::ScopedAStatus Vibrator::compose(const std::vector<CompositeEffect>& composite,
-                                     const std::shared_ptr<IVibratorCallback>& callback) {
-    if (composite.empty() || composite.size() > 256) {
-        return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_ILLEGAL_ARGUMENT));
-    }
-
-    if (!mReady) {
-        return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_SERVICE_SPECIFIC));
-    }
-
-    for (const auto& effect : composite) {
-        if (effect.delayMs < 0 || effect.delayMs > kCompositionDelayMaxMs || effect.scale < 0.0f ||
-            effect.scale > 1.0f) {
-            return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_ILLEGAL_ARGUMENT));
-        }
-    }
-
-    mGeneration.fetch_add(1);
-    playComposition(composite, callback);
-
-    return ndk::ScopedAStatus::ok();
+ndk::ScopedAStatus Vibrator::compose(const std::vector<CompositeEffect>& /* composite */,
+                                     const std::shared_ptr<IVibratorCallback>& /* callback */) {
+    return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_UNSUPPORTED_OPERATION));
 }
 
 ndk::ScopedAStatus Vibrator::getSupportedAlwaysOnEffects(

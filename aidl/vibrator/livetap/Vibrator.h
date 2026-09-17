@@ -56,8 +56,6 @@ class Vibrator : public BnVibrator {
     static std::string lookupPath(const std::vector<std::string>& candidates);
     static bool writeValue(const std::string& path, int32_t value);
     int32_t playEffect(uint32_t durationMs, uint8_t amplitude);
-    void playComposition(std::vector<CompositeEffect> composite,
-                         const std::shared_ptr<IVibratorCallback>& callback);
 
     bool mReady = false;
     bool mAmplitudeSet = false;
