@@ -31,9 +31,10 @@ namespace vibrator {
 namespace {
 
 constexpr uint8_t kMaxAmplitude = 0xff;
-constexpr int32_t kMinLevel = 800;
+constexpr int32_t kMinLevel = 100;
 constexpr int32_t kMaxLevel = 2400;
-constexpr int32_t kLevelStep = 100;
+constexpr int32_t kLevelStep = 25;
+constexpr int32_t kDefaultOnLevel = 1600;
 constexpr uint32_t kDoubleClickGapMs = 100;
 
 constexpr float kLightScale = 0.60f;
@@ -223,7 +224,6 @@ ndk::ScopedAStatus Vibrator::off() {
     mGeneration.fetch_add(1);
 
     std::lock_guard<std::mutex> lock(mMutex);
-    mAmplitudeSet = false;
 
     if (!writeValue(mActivatePath, 0)) {
         return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_SERVICE_SPECIFIC));
@@ -249,9 +249,8 @@ ndk::ScopedAStatus Vibrator::on(int32_t timeoutMs,
         std::lock_guard<std::mutex> lock(mMutex);
 
         if (!mAmplitudeSet && !mVmaxPath.empty()) {
-            writeValue(mVmaxPath, kMaxLevel);
+            writeValue(mVmaxPath, kDefaultOnLevel);
         }
-        mAmplitudeSet = false;
 
         if (!writeValue(mDurationPath, timeoutMs) || !writeValue(mActivatePath, 1)) {
             return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_SERVICE_SPECIFIC));
